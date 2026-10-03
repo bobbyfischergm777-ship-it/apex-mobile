@@ -1,0 +1,3 @@
+# informational only — buildozer.spec drives the real build
+kivy==2.3.0
+pyjnius
