@@ -29,7 +29,6 @@ jobs:
               print "android.sdk_path = /usr/local/lib/android/sdk";
               print "android.ndk_path = /usr/local/lib/android/sdk/ndk/25.2.9519653";
               print "android.accept_sdk_license = True";
-              print "p4a.branch = v2023.09.02";
               d=1; next
             }
             { print }
