@@ -17,45 +17,39 @@ jobs:
           DIR=$(dirname "$SPEC")
           echo "dir=$DIR" >> $GITHUB_OUTPUT
 
-      - name: Patch spec (correct section)
+      - name: Patch spec
         working-directory: ${{ steps.f.outputs.dir }}
         run: |
-          sed -i '/android\.sdk_path/d' buildozer.spec
-          sed -i '/android\.accept_sdk_license/d' buildozer.spec
-          sed -i '/android\.ndk_path/d' buildozer.spec
+          sed -i '/android\.sdk_path/d;/android\.ndk_path/d;/android\.accept_sdk_license/d' buildozer.spec
           awk '
-            /^\[app\]/ && !done {
+            /^\[app\]/ && !d {
               print;
               print "android.sdk_path = /usr/local/lib/android/sdk";
               print "android.ndk_path = /usr/local/lib/android/sdk/ndk/25.2.9519653";
               print "android.accept_sdk_license = True";
-              done=1; next;
+              d=1; next
             }
             { print }
-          ' buildozer.spec > buildozer.spec.new
-          mv buildozer.spec.new buildozer.spec
+          ' buildozer.spec > s.new && mv s.new buildozer.spec
           grep -n "sdk_path\|ndk_path\|accept_sdk" buildozer.spec
 
-      - name: Fix sdkmanager layout for buildozer 1.5
+      - name: Fix sdkmanager
         run: |
           SDK=/usr/local/lib/android/sdk
-          # buildozer looks for $SDK/tools/bin/sdkmanager — modern SDK puts it in cmdline-tools
           sudo mkdir -p $SDK/tools/bin
-          for tool in sdkmanager avdmanager; do
-            SRC=$(find $SDK/cmdline-tools -name $tool -type f 2>/dev/null | head -1)
-            [ -n "$SRC" ] && sudo ln -sf "$SRC" $SDK/tools/bin/$tool
+          for t in sdkmanager avdmanager; do
+            SRC=$(find $SDK/cmdline-tools -name $t -type f 2>/dev/null | head -1)
+            [ -n "$SRC" ] && sudo ln -sf "$SRC" $SDK/tools/bin/$t
           done
-          ls -la $SDK/tools/bin/
-          $SDK/tools/bin/sdkmanager --version || echo "sdkmanager check failed"
-          # verify NDK 25.2 exists
-          ls /usr/local/lib/android/sdk/ndk/ || echo "no ndk dir"
+          $SDK/tools/bin/sdkmanager --version
+          ls $SDK/ndk/
 
       - name: Pre-accept licenses
         run: |
           mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
           cp /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
 
-      - name: Install system deps
+      - name: Install deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev build-essential ccache
@@ -63,6 +57,7 @@ jobs:
           pip install "buildozer==1.5.0" "cython<3.0" virtualenv
 
       - name: Build
+        id: build
         working-directory: ${{ steps.f.outputs.dir }}
         env:
           ANDROIDSDK: /usr/local/lib/android/sdk
@@ -71,12 +66,42 @@ jobs:
           NDKAPI: "24"
         run: |
           yes | buildozer -v android debug 2>&1 | tee build.log
+          exit ${PIPESTATUS[0]}
         continue-on-error: true
 
-      - name: Show log tail
+      - name: Collect APKs (any path)
         if: always()
         working-directory: ${{ steps.f.outputs.dir }}
-        run: tail -100 build.log || true
+        run: |
+          mkdir -p /tmp/out
+          echo "── searching for APKs ──"
+          find . -name "*.apk" -not -path "./.buildozer/*" -exec ls -la {} \;
+          find . -name "*.apk" -not -path "./.buildozer/*" -exec cp {} /tmp/out/ \;
+          ls -la /tmp/out/ || echo "no APK found anywhere"
+
+      - name: Result
+        if: always()
+        working-directory: ${{ steps.f.outputs.dir }}
+        run: |
+          echo "═══ bin/ ═══"
+          ls -la bin/ 2>&1 || echo "no bin/"
+          echo ""
+          echo "═══ last 200 lines of build.log ═══"
+          tail -200 build.log 2>&1 || echo "no log"
+          {
+            echo "## Result"
+            echo ""
+            echo "build step outcome: **${{ steps.build.outcome }}**"
+            echo ""
+            echo "### bin/"
+            echo '```'
+            ls -la bin/ 2>&1 || echo "no bin/"
+            echo '```'
+            echo "### last 200 lines of build.log"
+            echo '```'
+            tail -200 build.log 2>&1 || echo "no log"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -88,4 +113,5 @@ jobs:
         if: always()
         with:
           name: apexengine-apk
-          path: ${{ steps.f.outputs.dir }}/bin/*.apk
+          path: /tmp/out/*.apk
+          if-no-files-found: warn
