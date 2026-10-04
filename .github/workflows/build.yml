@@ -20,6 +20,8 @@ jobs:
       - name: Patch spec
         working-directory: ${{ steps.f.outputs.dir }}
         run: |
+          # force Python 3.11 — Kivy 2.3.0 is incompatible with Python 3.14's C API
+          sed -i 's/^requirements *=.*/requirements = python3==3.11.5,kivy==2.3.0,pyjnius,android,plyer/' buildozer.spec
           sed -i '/android\.sdk_path/d;/android\.ndk_path/d;/android\.accept_sdk_license/d' buildozer.spec
           awk '
             /^\[app\]/ && !d {
@@ -27,11 +29,13 @@ jobs:
               print "android.sdk_path = /usr/local/lib/android/sdk";
               print "android.ndk_path = /usr/local/lib/android/sdk/ndk/25.2.9519653";
               print "android.accept_sdk_license = True";
+              print "p4a.branch = v2023.09.02";
               d=1; next
             }
             { print }
           ' buildozer.spec > s.new && mv s.new buildozer.spec
-          grep -n "sdk_path\|ndk_path\|accept_sdk" buildozer.spec
+          echo "── relevant lines ──"
+          grep -n "requirements\|sdk_path\|ndk_path\|accept_sdk\|p4a.branch" buildozer.spec
 
       - name: Fix sdkmanager
         run: |
