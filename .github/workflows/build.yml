@@ -13,42 +13,47 @@ jobs:
         id: f
         run: |
           SPEC=$(find . -name buildozer.spec -not -path './.git/*' | head -1)
-          [ -z "$SPEC" ] && { echo "no buildozer.spec"; find . -type f | head; exit 1; }
+          [ -z "$SPEC" ] && { echo "no buildozer.spec"; exit 1; }
           DIR=$(dirname "$SPEC")
           echo "dir=$DIR" >> $GITHUB_OUTPUT
-          echo "spec=$SPEC" >> $GITHUB_OUTPUT
 
       - name: Patch spec (correct section)
         working-directory: ${{ steps.f.outputs.dir }}
         run: |
-          # nuke any existing sdk_path / license lines wherever they are
           sed -i '/android\.sdk_path/d' buildozer.spec
           sed -i '/android\.accept_sdk_license/d' buildozer.spec
-
-          # insert right after [app] header (this is the section buildozer reads)
+          sed -i '/android\.ndk_path/d' buildozer.spec
           awk '
             /^\[app\]/ && !done {
               print;
               print "android.sdk_path = /usr/local/lib/android/sdk";
+              print "android.ndk_path = /usr/local/lib/android/sdk/ndk/25.2.9519653";
               print "android.accept_sdk_license = True";
-              done=1;
-              next;
+              done=1; next;
             }
             { print }
           ' buildozer.spec > buildozer.spec.new
           mv buildozer.spec.new buildozer.spec
+          grep -n "sdk_path\|ndk_path\|accept_sdk" buildozer.spec
 
-          echo "── relevant spec lines ──"
-          grep -n "sdk_path\|accept_sdk" buildozer.spec
-          echo "── first 40 lines ──"
-          head -40 buildozer.spec
-
-      - name: Pre-accept licenses in buildozer's cache
+      - name: Fix sdkmanager layout for buildozer 1.5
         run: |
-          # buildozer caches at ~/.buildozer/android/platform/android-sdk
+          SDK=/usr/local/lib/android/sdk
+          # buildozer looks for $SDK/tools/bin/sdkmanager — modern SDK puts it in cmdline-tools
+          sudo mkdir -p $SDK/tools/bin
+          for tool in sdkmanager avdmanager; do
+            SRC=$(find $SDK/cmdline-tools -name $tool -type f 2>/dev/null | head -1)
+            [ -n "$SRC" ] && sudo ln -sf "$SRC" $SDK/tools/bin/$tool
+          done
+          ls -la $SDK/tools/bin/
+          $SDK/tools/bin/sdkmanager --version || echo "sdkmanager check failed"
+          # verify NDK 25.2 exists
+          ls /usr/local/lib/android/sdk/ndk/ || echo "no ndk dir"
+
+      - name: Pre-accept licenses
+        run: |
           mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          cp /usr/local/lib/android/sdk/licenses/* \
-             ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
+          cp /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
 
       - name: Install system deps
         run: |
@@ -61,7 +66,7 @@ jobs:
         working-directory: ${{ steps.f.outputs.dir }}
         env:
           ANDROIDSDK: /usr/local/lib/android/sdk
-          ANDROIDNDK: /usr/local/lib/android/sdk/ndk/25b
+          ANDROIDNDK: /usr/local/lib/android/sdk/ndk/25.2.9519653
           ANDROIDAPI: "33"
           NDKAPI: "24"
         run: |
@@ -71,20 +76,16 @@ jobs:
       - name: Show log tail
         if: always()
         working-directory: ${{ steps.f.outputs.dir }}
-        run: |
-          echo "═══ last 100 lines ═══"
-          tail -100 build.log || echo "no log"
+        run: tail -100 build.log || true
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: build-log
           path: ${{ steps.f.outputs.dir }}/build.log
-          if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: apexengine-apk
           path: ${{ steps.f.outputs.dir }}/bin/*.apk
-          if-no-files-found: warn
