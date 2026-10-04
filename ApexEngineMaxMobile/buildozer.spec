@@ -10,7 +10,7 @@ source.exclude_dirs = .git,__pycache__,bin,dist,build,tests
 android.add_src = src
 
 version = 3.0.0
-requirements = python3,kivy==2.3.0,pyjnius,android,plyer
+requirements = python3==3.11.5,kivy==2.3.0,pyjnius,android,plyer
 orientation = portrait
 fullscreen = 0
 icon.filename = %(source.dir)s/icon.png
